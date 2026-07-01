@@ -162,11 +162,17 @@ export async function renderCourseImage(
     ? Math.min(...sameColumn.map((p) => p.y))
     : pageHeight;
 
+  // ラベルのyMinはそのコースの最初の品目行とほぼ同じ高さにある。日付ヘッダー行と
+  // 「今週のおすすめ」帯（このコース専用ではなく、ページ上部の別枠の目玉商品）は
+  // さらに上にあるため、日付ヘッダーだけを含めつつ「今週のおすすめ」帯は避けたい
+  // ところだが、両者は隣接していて矩形クロップでは分離できない。そのため両方
+  // 含めた上で、どちらを無視すべきかはBedrock側のプロンプトで指示する
+  // （日付ヘッダーが無いと列＝曜日の対応をBedrockが誤りやすいため、削らない）。
   const isLeftColumn = target.x < pageWidth / 2;
   const columnGapPt = 10;
   const xStartPt = isLeftColumn ? 0 : target.x - columnGapPt;
   const xEndPt = isLeftColumn ? target.x + 700 : pageWidth;
-  const yStartPt = Math.max(0, target.y - 35);
+  const yStartPt = Math.max(0, target.y - 65);
   const yEndPt = Math.min(pageHeight, nextY);
 
   const DPI = 150;
