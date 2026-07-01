@@ -82,19 +82,51 @@ async function login(page: Page): Promise<void> {
 }
 
 async function navigateToMenuPage(page: Page): Promise<void> {
-  const menuLink = page
-    .getByRole("link", { name: /献立|舞菜/ })
-    .first();
+  const dailyCoopTab = await findFirstMatch([
+    page.getByRole("link", { name: "デイリーコープ", exact: true }),
+    page.getByRole("link", { name: /デイリーコープ/ }),
+  ]);
 
+  if (dailyCoopTab) {
+    await Promise.all([
+      page.waitForLoadState("networkidle"),
+      dailyCoopTab.click(),
+    ]);
+    // タブ切り替え後にコンテンツが非同期で描画されるケースに備えて少し待つ
+    await page.waitForTimeout(2000);
+    await dumpDebug(page, "03_daily_coop_tab");
+  } else {
+    console.warn(
+      "[scraper] 「デイリーコープ」タブが見つかりませんでした。ログイン後のページをそのまま解析します。"
+    );
+  }
+
+  const menuLink = page.getByRole("link", { name: /献立|舞菜/ }).first();
   if (await menuLink.count()) {
     await Promise.all([
       page.waitForLoadState("networkidle"),
       menuLink.click(),
     ]);
-    await dumpDebug(page, "03_menu_page");
+    await dumpDebug(page, "04_menu_page");
   } else {
     console.warn(
-      "[scraper] 献立ページへのリンクが見つかりませんでした。ログイン後のページをそのまま解析します。"
+      "[scraper] 献立ページへのリンクが見つかりませんでした。現在のページをそのまま解析します。"
+    );
+  }
+
+  if (DEBUG) {
+    const pdfLinks = await page.$$eval('a[href$=".pdf"]', (anchors) =>
+      anchors.map((a) => ({
+        href: (a as HTMLAnchorElement).href,
+        text: (a.textContent ?? "").trim(),
+        nearbyText: (a.closest("li,div,section,article")?.textContent ?? "")
+          .trim()
+          .slice(0, 80),
+      }))
+    );
+    console.log(
+      `[debug] PDFリンク一覧 (${pdfLinks.length}件):\n` +
+        JSON.stringify(pdfLinks, null, 2)
     );
   }
 }
