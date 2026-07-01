@@ -7,14 +7,15 @@
 1. Playwrightでコープデリeフレンズ（`https://daily.coopdeli.jp/auth/login.html`）にログイン
 2. 「デイリーコープ」タブから「メインメニュー献立カレンダー（PDF）」のリンクを取得
    - このPDFは月〜金5日分・全コース（舞菜おかず／しっかりおかず／御膳／弁当／ミニ弁当）分の献立が1枚にまとまった週間カレンダー。ログイン不要で直接ダウンロード可能だが、URL（`daily_menu_XXX.pdf`の日付フォルダ）は毎回サイトを見に行かないと分からないため、都度ログインして探索している
-3. `pdftotext -layout`（poppler-utils）でPDFをテキスト化
-4. AWS Bedrock（Claude Haiku, `jp.anthropic.claude-haiku-4-5-20251001-v1:0`, ap-northeast-1）でテキストを「月: 主菜（副菜...）」の曜日別リストに整形
-   - `USE_BEDROCK=false`または呼び出し失敗時は、簡易的な正規表現ベースの抽出にフォールバック
-5. 月曜のみ週間分すべて、それ以外の通知日はその日の行だけを抽出してDiscord Webhookに送信
+3. `pdftotext -bbox-layout`（poppler-utils）でPDF内の各コース見出し（縦書き）の座標を取得し、`pdftocairo` で該当コースの表組み部分だけを画像として切り出す
+   - PDFは2段組みレイアウトで、コースごとの品目がテキストとして綺麗に分離できない（同じ行に左右のコースが混在する）ため、テキスト抽出ではなく画像を直接読み取らせる方式にしている
+4. AWS Bedrock（Claude Haiku, `jp.anthropic.claude-haiku-4-5-20251001-v1:0`, ap-northeast-1）のビジョン機能で画像を読み取り、「月: 主菜（副菜...）」の曜日別リストに整形
+   - `USE_BEDROCK=false`または呼び出し失敗時は、`pdftotext -layout` の簡易的なテキスト抽出にフォールバック（列混在の影響でやや精度が落ちる）
+5. 月曜1回、週間分（月〜金）をまとめてDiscord Webhookに送信
 
 ## 実行スケジュール
 
-`.github/workflows/daily_notify.yml` で **月・水・金 18:00 JST**（`0 9 * * 1,3,5` UTC）に自動実行。`workflow_dispatch` で手動実行も可能（`debug_scrape` 入力をtrueにするとデバッグ用スクリーンショット/HTMLをアーティファクトとして保存する）。
+`.github/workflows/daily_notify.yml` で **毎週月曜 18:00 JST**（`0 9 * * 1` UTC）に自動実行。`workflow_dispatch` で手動実行も可能（`debug_scrape` 入力をtrueにするとデバッグ用スクリーンショット/HTMLをアーティファクトとして保存する）。
 
 ## セットアップ
 
@@ -23,7 +24,7 @@
 ```bash
 npm install
 npx playwright install chromium
-# ローカルでPDFテキスト抽出を行うには poppler-utils が必要
+# ローカルでPDF処理を行うには poppler-utils（pdftotext, pdftocairo）が必要
 brew install poppler   # macOS
 ```
 
@@ -38,7 +39,7 @@ brew install poppler   # macOS
 | `COOP_PASSWORD` | 同パスワード |
 | `LOGIN_URL` | ログインページURL（通常は変更不要） |
 | `DEBUG_SCRAPE` | `true`でスクレイピング各ステップのスクリーンショット/HTMLを`debug/`に保存 |
-| `USE_BEDROCK` | `true`でBedrockによる整形を有効化 |
+| `USE_BEDROCK` | `true`でBedrockによる画像整形を有効化 |
 | `AWS_REGION` | Bedrock呼び出しリージョン（既定 `ap-northeast-1`） |
 | `BEDROCK_MODEL_ID` | 使用するBedrockモデルID |
 
@@ -55,5 +56,6 @@ npm start        # ビルド済みJSを実行
 ## 既知の制約
 
 - ログインフォーム・献立ページのDOM構造はサイトの実装に依存しており、レイアウト変更で壊れる可能性がある。`DEBUG_SCRAPE=true`で原因調査用のスクリーンショット/HTMLを取得できる（**組合員コードや実名がスクリーンショットに写り込むため、確認後は速やかに削除すること**）。
-- Bedrock整形は完璧ではない（特に「舞菜しっかりおかず」はPDF内のレイアウトが複雑で、まれに料理名が混ざる）。通知メッセージには必ず公式PDFへの直リンクを併記しており、正確な情報はそちらで確認できる。
+- 画像ベースのBedrock抽出も完璧ではなく、まれに料理名の一部でOCR誤読が起きる（例: 「きんぴら」が「さんぴら」になるなど）。通知メッセージには必ず公式PDFへの直リンクを併記しており、正確な情報はそちらで確認できる。
+- 各コースの表組み位置はPDF内の縦書き見出しの座標から動的に計算しているが、左右2列・3段のレイアウト構造（`舞菜おかず`/`舞菜しっかりおかず`、`舞菜弁当`/`舞菜ミニ弁当`、`舞菜御膳`/`エネルギー塩分調整食`のペア）はこのテンプレート前提でハードコードしている。コープ側でPDFのレイアウトが変わると崩れる可能性がある。
 - 献立カレンダーPDFのURL（日付フォルダ）が毎週どういう規則で決まるかは未解明。近い日付を試すと同じ内容が返ることがある一方、翌週分はまだ存在しないと302が返ることを確認済み。そのため固定URLを推測するのではなく、毎回ログインして実際のリンクを取得する方式にしている。

@@ -1,18 +1,15 @@
 import dotenv from "dotenv";
 dotenv.config();
 
-import { isMondayJST } from "./dateUtil";
 import { scrapeMenus } from "./scraper";
 import { formatMessage } from "./format";
 import { sendToDiscord } from "./discord";
 
 async function main(): Promise<void> {
-  const isMonday = isMondayJST();
-
-  console.log(`[index] 開始: isMonday=${isMonday}`);
+  console.log("[index] 開始");
 
   const menus = await scrapeMenus();
-  const message = formatMessage(menus, isMonday);
+  const message = formatMessage(menus);
 
   console.log("[index] Discordへ送信するメッセージ:\n" + message);
 

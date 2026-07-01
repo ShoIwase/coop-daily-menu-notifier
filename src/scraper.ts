@@ -3,11 +3,14 @@ import fs from "fs";
 import path from "path";
 import { CourseMenu, ScrapedMenus } from "./types";
 import {
-  downloadPdfText,
+  downloadPdf,
+  cleanupPdf,
+  extractLayoutText,
   extractCourseSnippet,
-  extractCourseRawSnippet,
+  renderCourseImage,
+  PdfHandle,
 } from "./pdfMenu";
-import { refineMenuText } from "./bedrock";
+import { refineMenuFromImage } from "./bedrock";
 
 const USE_BEDROCK = process.env.USE_BEDROCK === "true";
 
@@ -149,31 +152,36 @@ export async function scrapeMenus(): Promise<ScrapedMenus> {
     await browser.close();
   }
 
-  const pdfText = await downloadPdfText(pdfUrl);
+  const pdfHandle = await downloadPdf(pdfUrl);
+  try {
+    const menus: Partial<Record<"okazu" | "sikkari", CourseMenu>> = {};
+    for (const course of COURSES) {
+      menus[course.key] = { summary: await buildCourseSummary(pdfHandle, course.label) };
+    }
 
-  const menus: Partial<Record<"okazu" | "sikkari", CourseMenu>> = {};
-  for (const course of COURSES) {
-    menus[course.key] = { summary: await buildCourseSummary(pdfText, course.label) };
+    return { pdfUrl, ...(menus as Record<"okazu" | "sikkari", CourseMenu>) };
+  } finally {
+    cleanupPdf(pdfHandle);
   }
-
-  return { pdfUrl, ...(menus as Record<"okazu" | "sikkari", CourseMenu>) };
 }
 
-async function buildCourseSummary(pdfText: string, courseLabel: string): Promise<string> {
-  const heuristicSnippet = extractCourseSnippet(pdfText, courseLabel);
+async function buildCourseSummary(pdfHandle: PdfHandle, courseLabel: string): Promise<string> {
+  const heuristicFallback = async () => {
+    const pdfText = await extractLayoutText(pdfHandle);
+    return extractCourseSnippet(pdfText, courseLabel);
+  };
 
-  if (!USE_BEDROCK) return heuristicSnippet;
-
-  const rawSnippet = extractCourseRawSnippet(pdfText, courseLabel);
-  if (!rawSnippet) return heuristicSnippet;
+  if (!USE_BEDROCK) return heuristicFallback();
 
   try {
-    return await refineMenuText(courseLabel, rawSnippet);
+    const image = await renderCourseImage(pdfHandle, courseLabel);
+    if (!image) throw new Error("該当コースの表組み画像を切り出せませんでした");
+    return await refineMenuFromImage(courseLabel, image);
   } catch (err) {
     console.warn(
       `[scraper] Bedrockによる整形に失敗したため簡易抽出結果を使用します（コース: ${courseLabel}）:`,
       err
     );
-    return heuristicSnippet;
+    return heuristicFallback();
   }
 }

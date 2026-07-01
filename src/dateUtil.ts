@@ -11,16 +11,6 @@ export function nowJST() {
   return dayjs().tz(JST);
 }
 
-export function isMondayJST(): boolean {
-  return nowJST().day() === 1;
-}
-
 export function todayLabelJST(): string {
   return nowJST().format("YYYY-MM-DD (ddd)");
-}
-
-const WEEKDAY_KANJI = ["日", "月", "火", "水", "木", "金", "土"] as const;
-
-export function todayWeekdayKanjiJST(): string {
-  return WEEKDAY_KANJI[nowJST().day()];
 }
