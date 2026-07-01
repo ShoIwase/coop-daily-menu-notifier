@@ -4,7 +4,12 @@ on:
   schedule:
     # 月〜金 15:00 JST = 06:00 UTC
     - cron: "0 6 * * 1-5"
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      debug_scrape:
+        description: "スクレイピング各ステップのスクリーンショット/HTMLをアーティファクトとして保存する"
+        type: boolean
+        default: false
 
 jobs:
   notify:
@@ -32,3 +37,12 @@ jobs:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
           COOP_MEMBER_CODE: ${{ secrets.COOP_MEMBER_CODE }}
           COOP_PASSWORD: ${{ secrets.COOP_PASSWORD }}
+          DEBUG_SCRAPE: ${{ inputs.debug_scrape && 'true' || 'false' }}
+
+      - name: Upload debug artifacts
+        if: ${{ always() && inputs.debug_scrape }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: debug-scrape-${{ github.run_id }}
+          path: debug/
+          retention-days: 3
