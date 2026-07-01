@@ -89,12 +89,15 @@ async function login(page: Page): Promise<void> {
 }
 
 async function findMenuPdfUrl(page: Page): Promise<string> {
-  const dailyCoopTab = await findFirstMatch([
-    page.getByRole("link", { name: "デイリーコープ", exact: true }),
-    page.getByRole("link", { name: /デイリーコープ/ }),
-  ]);
+  // ログイン直後はナビゲーションが非同期描画されるため、count() を即座に見るのではなく
+  // 要素が実際に現れるまで積極的にポーリングする。
+  const dailyCoopTab = page.getByRole("link", { name: /デイリーコープ/ }).first();
+  const tabAppeared = await dailyCoopTab
+    .waitFor({ state: "visible", timeout: 10000 })
+    .then(() => true)
+    .catch(() => false);
 
-  if (dailyCoopTab) {
+  if (tabAppeared) {
     await Promise.all([page.waitForLoadState("networkidle"), dailyCoopTab.click()]);
     // タブ切り替え後にコンテンツが非同期で描画されるケースに備えて少し待つ
     await page.waitForTimeout(2000);
