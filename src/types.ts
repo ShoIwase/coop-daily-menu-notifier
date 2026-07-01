@@ -1,9 +1,9 @@
 export interface CourseMenu {
-  today: string;
-  weekly?: string;
+  summary: string;
 }
 
 export interface ScrapedMenus {
+  pdfUrl: string;
   okazu: CourseMenu;
   sikkari: CourseMenu;
 }

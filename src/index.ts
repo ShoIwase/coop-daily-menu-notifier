@@ -7,14 +7,12 @@ import { formatMessage } from "./format";
 import { sendToDiscord } from "./discord";
 
 async function main(): Promise<void> {
-  const includeWeekly = isMondayJST();
+  const isMonday = isMondayJST();
 
-  console.log(
-    `[index] 開始: includeWeekly=${includeWeekly}`
-  );
+  console.log(`[index] 開始: isMonday=${isMonday}`);
 
-  const menus = await scrapeMenus(includeWeekly);
-  const message = formatMessage(menus, includeWeekly);
+  const menus = await scrapeMenus();
+  const message = formatMessage(menus, isMonday);
 
   console.log("[index] Discordへ送信するメッセージ:\n" + message);
 

@@ -1,7 +1,8 @@
-import { chromium, Page } from "playwright";
+import { chromium, Locator, Page } from "playwright";
 import fs from "fs";
 import path from "path";
 import { CourseMenu, ScrapedMenus } from "./types";
+import { downloadPdfText, extractCourseSnippet } from "./pdfMenu";
 
 const DEBUG = process.env.DEBUG_SCRAPE === "true";
 const DEBUG_DIR = path.join(process.cwd(), "debug");
@@ -13,6 +14,9 @@ const COURSES: { key: "okazu" | "sikkari"; label: string }[] = [
   { key: "okazu", label: "舞菜おかず" },
   { key: "sikkari", label: "舞菜しっかりおかず" },
 ];
+
+// メニューPDFのファイル名パターン（例: daily_menu_240.pdf）
+const MENU_PDF_PATTERN = /daily_menu_\d+\.pdf(\?.*)?$/i;
 
 async function dumpDebug(page: Page, stepName: string): Promise<void> {
   if (!DEBUG) return;
@@ -28,7 +32,7 @@ async function dumpDebug(page: Page, stepName: string): Promise<void> {
   console.log(`[debug] saved step "${stepName}" -> ${DEBUG_DIR}`);
 }
 
-async function findFirstMatch(candidates: import("playwright").Locator[]) {
+async function findFirstMatch(candidates: Locator[]): Promise<Locator | null> {
   for (const candidate of candidates) {
     if ((await candidate.count()) > 0) {
       return candidate.first();
@@ -49,7 +53,6 @@ async function login(page: Page): Promise<void> {
   await page.goto(LOGIN_URL, { waitUntil: "networkidle" });
   await dumpDebug(page, "01_login_page");
 
-  // ラベルでの取得を優先し、見つからない場合は type 属性でフォールバックする
   const idField = await findFirstMatch([
     page.getByLabel(/組合員コード|ID|ユーザー/),
     page.locator('input[type="text"], input[type="tel"]'),
@@ -74,124 +77,74 @@ async function login(page: Page): Promise<void> {
     throw new Error("ログインボタンが見つかりませんでした");
   }
 
-  await Promise.all([
-    page.waitForLoadState("networkidle"),
-    loginButton.click(),
-  ]);
+  await Promise.all([page.waitForLoadState("networkidle"), loginButton.click()]);
   await dumpDebug(page, "02_after_login");
 }
 
-async function navigateToMenuPage(page: Page): Promise<void> {
+async function findMenuPdfUrl(page: Page): Promise<string> {
   const dailyCoopTab = await findFirstMatch([
     page.getByRole("link", { name: "デイリーコープ", exact: true }),
     page.getByRole("link", { name: /デイリーコープ/ }),
   ]);
 
   if (dailyCoopTab) {
-    await Promise.all([
-      page.waitForLoadState("networkidle"),
-      dailyCoopTab.click(),
-    ]);
+    await Promise.all([page.waitForLoadState("networkidle"), dailyCoopTab.click()]);
     // タブ切り替え後にコンテンツが非同期で描画されるケースに備えて少し待つ
     await page.waitForTimeout(2000);
     await dumpDebug(page, "03_daily_coop_tab");
   } else {
     console.warn(
-      "[scraper] 「デイリーコープ」タブが見つかりませんでした。ログイン後のページをそのまま解析します。"
+      "[scraper] 「デイリーコープ」タブが見つかりませんでした。現在のページから探索します。"
     );
   }
 
-  const menuLink = page.getByRole("link", { name: /献立|舞菜/ }).first();
-  if (await menuLink.count()) {
-    await Promise.all([
-      page.waitForLoadState("networkidle"),
-      menuLink.click(),
-    ]);
-    await dumpDebug(page, "04_menu_page");
-  } else {
-    console.warn(
-      "[scraper] 献立ページへのリンクが見つかりませんでした。現在のページをそのまま解析します。"
-    );
-  }
-
-  if (DEBUG) {
-    const pdfLinks = await page.$$eval('a[href$=".pdf"]', (anchors) =>
+  const pdfLinks = await page.$$eval(
+    'a[href$=".pdf"], a[href*=".pdf?"]',
+    (anchors) =>
       anchors.map((a) => ({
         href: (a as HTMLAnchorElement).href,
         text: (a.textContent ?? "").trim(),
-        nearbyText: (a.closest("li,div,section,article")?.textContent ?? "")
-          .trim()
-          .slice(0, 80),
       }))
-    );
-    console.log(
-      `[debug] PDFリンク一覧 (${pdfLinks.length}件):\n` +
-        JSON.stringify(pdfLinks, null, 2)
-    );
-  }
-}
-
-async function extractCourseMenu(
-  page: Page,
-  courseLabel: string,
-  includeWeekly: boolean
-): Promise<CourseMenu> {
-  const courseSection = page.getByText(courseLabel, { exact: false }).first();
-
-  if (!(await courseSection.count())) {
-    console.warn(`[scraper] コース「${courseLabel}」の要素が見つかりませんでした`);
-    return { today: "（取得できませんでした）" };
-  }
-
-  const container = courseSection.locator(
-    "xpath=ancestor::*[self::section or self::div or self::article][1]"
   );
 
-  const todayText = (await container.first().innerText().catch(() => "")).trim();
-
-  const result: CourseMenu = { today: todayText || "（今日のメニューを取得できませんでした）" };
-
-  if (includeWeekly) {
-    const weeklyLink = container
-      .getByRole("link", { name: /週間|週予定/ })
-      .first();
-
-    if (await weeklyLink.count()) {
-      await Promise.all([
-        page.waitForLoadState("networkidle"),
-        weeklyLink.click(),
-      ]);
-      await dumpDebug(page, `04_weekly_${courseLabel}`);
-      const weeklyText = (await page.locator("body").innerText().catch(() => "")).trim();
-      result.weekly = weeklyText || "（週間メニューを取得できませんでした）";
-      await page.goBack({ waitUntil: "networkidle" }).catch(() => undefined);
-    } else {
-      console.warn(
-        `[scraper] コース「${courseLabel}」の週間メニューリンクが見つかりませんでした`
-      );
-      result.weekly = "（週間メニューリンクが見つかりませんでした）";
-    }
+  if (DEBUG) {
+    console.log(
+      `[debug] PDFリンク一覧 (${pdfLinks.length}件):\n${JSON.stringify(pdfLinks, null, 2)}`
+    );
   }
 
-  return result;
+  const menuLink =
+    pdfLinks.find((l) => MENU_PDF_PATTERN.test(l.href)) ??
+    pdfLinks.find((l) => l.text.includes("メインメニュー") || l.text.includes("献立"));
+
+  if (!menuLink) {
+    throw new Error(
+      "献立カレンダーPDFへのリンクが見つかりませんでした（DEBUG_SCRAPE=true で一覧を確認してください）"
+    );
+  }
+
+  return menuLink.href;
 }
 
-export async function scrapeMenus(includeWeekly: boolean): Promise<ScrapedMenus> {
+export async function scrapeMenus(): Promise<ScrapedMenus> {
   const browser = await chromium.launch({ headless: true });
+  let pdfUrl: string;
   try {
     const context = await browser.newContext();
     const page = await context.newPage();
 
     await login(page);
-    await navigateToMenuPage(page);
-
-    const menus: Partial<Record<"okazu" | "sikkari", CourseMenu>> = {};
-    for (const course of COURSES) {
-      menus[course.key] = await extractCourseMenu(page, course.label, includeWeekly);
-    }
-
-    return menus as ScrapedMenus;
+    pdfUrl = await findMenuPdfUrl(page);
   } finally {
     await browser.close();
   }
+
+  const pdfText = await downloadPdfText(pdfUrl);
+
+  const menus: Partial<Record<"okazu" | "sikkari", CourseMenu>> = {};
+  for (const course of COURSES) {
+    menus[course.key] = { summary: extractCourseSnippet(pdfText, course.label) };
+  }
+
+  return { pdfUrl, ...(menus as Record<"okazu" | "sikkari", CourseMenu>) };
 }

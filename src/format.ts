@@ -22,8 +22,12 @@ export function splitIntoChunks(text: string, limit = DISCORD_LIMIT): string[] {
   return chunks;
 }
 
-export function formatMessage(menus: ScrapedMenus, includeWeekly: boolean): string {
+export function formatMessage(menus: ScrapedMenus, isMonday: boolean): string {
   const sections: string[] = [`📅 ${todayLabelJST()} のデイリーコープ献立`];
+
+  if (isMonday) {
+    sections.push("（月曜日のため、今週分の献立をまとめてお届けします）");
+  }
 
   const courses: { label: string; key: "okazu" | "sikkari" }[] = [
     { label: "🍱 舞菜おかず", key: "okazu" },
@@ -32,11 +36,12 @@ export function formatMessage(menus: ScrapedMenus, includeWeekly: boolean): stri
 
   for (const course of courses) {
     const menu = menus[course.key];
-    sections.push(`\n**${course.label}**\n【今日のメニュー】\n${menu.today}`);
-    if (includeWeekly && menu.weekly) {
-      sections.push(`【週間メニュー】\n${menu.weekly}`);
-    }
+    sections.push(`\n**${course.label}**\n${menu.summary}`);
   }
+
+  sections.push(
+    `\n📄 正確な日付別メニューはこちら（公式PDF）\n${menus.pdfUrl}`
+  );
 
   return sections.join("\n");
 }
