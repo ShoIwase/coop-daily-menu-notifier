@@ -1,0 +1,73 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  GitHub Actions が coop-daily-menu-notifier ワークフローから
+  Bedrock (Claude Haiku) を呼び出すための OIDC IAM ロール。
+
+Parameters:
+  GitHubOrg:
+    Type: String
+    Default: ShoIwase
+
+  GitHubRepo:
+    Type: String
+    Default: coop-daily-menu-notifier
+
+  AllowedBranch:
+    Type: String
+    Default: main
+
+  OIDCProviderArn:
+    Type: String
+    Description: "既存の GitHub OIDC Provider ARN（アカウント内で共有）"
+    Default: "arn:aws:iam::{account_id}:oidc-provider/token.actions.githubusercontent.com"
+
+  BedrockModelId:
+    Type: String
+    Default: "jp.anthropic.claude-haiku-4-5-20251001-v1:0"
+
+Resources:
+  GitHubActionsBedrockRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${GitHubRepo}-gha-bedrock"
+      Description: !Sub "GitHub Actions OIDC role for ${GitHubOrg}/${GitHubRepo} (Bedrock invoke only)"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Federated: !Ref OIDCProviderArn
+            Action: sts:AssumeRoleWithWebIdentity
+            Condition:
+              StringEquals:
+                "token.actions.githubusercontent.com:aud": sts.amazonaws.com
+              StringLike:
+                "token.actions.githubusercontent.com:sub":
+                  - !Sub "repo:${GitHubOrg}/${GitHubRepo}:ref:refs/heads/${AllowedBranch}"
+
+      Policies:
+        - PolicyName: BedrockInvokeOnly
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: BedrockInvoke
+                Effect: Allow
+                Action:
+                  - bedrock:InvokeModel
+                Resource:
+                  - !Sub "arn:aws:bedrock:${AWS::Region}:${AWS::AccountId}:inference-profile/${BedrockModelId}"
+                  - !Sub "arn:aws:bedrock:*::foundation-model/anthropic.claude-haiku-4-5-20251001-v1:0"
+
+      Tags:
+        - Key: ManagedBy
+          Value: GitHubActions
+        - Key: GitHubRepo
+          Value: !Sub "${GitHubOrg}/${GitHubRepo}"
+
+Outputs:
+  RoleArn:
+    Value: !GetAtt GitHubActionsBedrockRole.Arn
+    Description: >
+      GitHub Secrets に設定する値:
+        Name : AWS_BEDROCK_ROLE_ARN
+        Value: (この値をコピー)

@@ -2,7 +2,14 @@ import { chromium, Locator, Page } from "playwright";
 import fs from "fs";
 import path from "path";
 import { CourseMenu, ScrapedMenus } from "./types";
-import { downloadPdfText, extractCourseSnippet } from "./pdfMenu";
+import {
+  downloadPdfText,
+  extractCourseSnippet,
+  extractCourseRawSnippet,
+} from "./pdfMenu";
+import { refineMenuText } from "./bedrock";
+
+const USE_BEDROCK = process.env.USE_BEDROCK === "true";
 
 const DEBUG = process.env.DEBUG_SCRAPE === "true";
 const DEBUG_DIR = path.join(process.cwd(), "debug");
@@ -143,8 +150,27 @@ export async function scrapeMenus(): Promise<ScrapedMenus> {
 
   const menus: Partial<Record<"okazu" | "sikkari", CourseMenu>> = {};
   for (const course of COURSES) {
-    menus[course.key] = { summary: extractCourseSnippet(pdfText, course.label) };
+    menus[course.key] = { summary: await buildCourseSummary(pdfText, course.label) };
   }
 
   return { pdfUrl, ...(menus as Record<"okazu" | "sikkari", CourseMenu>) };
+}
+
+async function buildCourseSummary(pdfText: string, courseLabel: string): Promise<string> {
+  const heuristicSnippet = extractCourseSnippet(pdfText, courseLabel);
+
+  if (!USE_BEDROCK) return heuristicSnippet;
+
+  const rawSnippet = extractCourseRawSnippet(pdfText, courseLabel);
+  if (!rawSnippet) return heuristicSnippet;
+
+  try {
+    return await refineMenuText(courseLabel, rawSnippet);
+  } catch (err) {
+    console.warn(
+      `[scraper] Bedrockによる整形に失敗したため簡易抽出結果を使用します（コース: ${courseLabel}）:`,
+      err
+    );
+    return heuristicSnippet;
+  }
 }

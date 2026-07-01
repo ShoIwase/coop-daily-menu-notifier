@@ -39,15 +39,9 @@ export async function downloadPdfText(pdfUrl: string): Promise<string> {
   }
 }
 
-export function extractCourseSnippet(
-  fullText: string,
-  courseLabel: string,
-  maxChars = 600
-): string {
+function findCourseSection(fullText: string, courseLabel: string): string | null {
   const startIndex = fullText.indexOf(courseLabel);
-  if (startIndex === -1) {
-    return "（PDFから該当コースの記載を見つけられませんでした）";
-  }
+  if (startIndex === -1) return null;
 
   const searchFrom = startIndex + courseLabel.length;
   let endIndex = fullText.length;
@@ -59,7 +53,18 @@ export function extractCourseSnippet(
     }
   }
 
-  const rawSnippet = fullText.slice(searchFrom, endIndex);
+  return fullText.slice(searchFrom, endIndex);
+}
+
+export function extractCourseSnippet(
+  fullText: string,
+  courseLabel: string,
+  maxChars = 600
+): string {
+  const rawSnippet = findCourseSection(fullText, courseLabel);
+  if (rawSnippet === null) {
+    return "（PDFから該当コースの記載を見つけられませんでした）";
+  }
 
   const cleaned = rawSnippet
     .split("\n")
@@ -74,4 +79,22 @@ export function extractCourseSnippet(
     .join("\n");
 
   return cleaned.slice(0, maxChars).trim() || "（メニュー品目を抽出できませんでした）";
+}
+
+// Bedrock へ渡す用の、ノイズ除去を最小限に留めた生テキスト。
+// LLM 側で価格・カロリー等のノイズ判別と曜日ごとの再構成を行わせる。
+export function extractCourseRawSnippet(
+  fullText: string,
+  courseLabel: string,
+  maxChars = 3000
+): string | null {
+  const rawSnippet = findCourseSection(fullText, courseLabel);
+  if (rawSnippet === null) return null;
+
+  return rawSnippet
+    .split("\n")
+    .map((line) => line.replace(/\s{2,}/g, " ").trim())
+    .filter((line) => line.length > 0)
+    .join("\n")
+    .slice(0, maxChars);
 }
