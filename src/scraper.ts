@@ -28,6 +28,15 @@ async function dumpDebug(page: Page, stepName: string): Promise<void> {
   console.log(`[debug] saved step "${stepName}" -> ${DEBUG_DIR}`);
 }
 
+async function findFirstMatch(candidates: import("playwright").Locator[]) {
+  for (const candidate of candidates) {
+    if ((await candidate.count()) > 0) {
+      return candidate.first();
+    }
+  }
+  return null;
+}
+
 async function login(page: Page): Promise<void> {
   const memberCode = process.env.COOP_MEMBER_CODE;
   const password = process.env.COOP_PASSWORD;
@@ -41,24 +50,33 @@ async function login(page: Page): Promise<void> {
   await dumpDebug(page, "01_login_page");
 
   // ラベルでの取得を優先し、見つからない場合は type 属性でフォールバックする
-  const idField = page
-    .getByLabel(/組合員コード|ID|ユーザー/)
-    .or(page.locator('input[type="text"], input[type="tel"]').first());
-  const pwField = page
-    .getByLabel(/パスワード/)
-    .or(page.locator('input[type="password"]').first());
+  const idField = await findFirstMatch([
+    page.getByLabel(/組合員コード|ID|ユーザー/),
+    page.locator('input[type="text"], input[type="tel"]'),
+  ]);
+  const pwField = await findFirstMatch([
+    page.getByLabel(/パスワード/),
+    page.locator('input[type="password"]'),
+  ]);
+  if (!idField || !pwField) {
+    throw new Error("ログインフォームの入力欄が見つかりませんでした");
+  }
+  await idField.fill(memberCode);
+  await pwField.fill(password);
 
-  await idField.first().fill(memberCode);
-  await pwField.first().fill(password);
-
-  const loginButton = page
-    .getByRole("link", { name: /ログイン/ })
-    .or(page.getByRole("button", { name: /ログイン/ }))
-    .or(page.getByText("ログイン", { exact: false }));
+  // 見出しテキストなど非クリック要素を誤って拾わないよう、リンク/ボタン役割のみに限定する
+  const loginButton = await findFirstMatch([
+    page.getByRole("link", { name: /ログイン/ }),
+    page.getByRole("button", { name: /ログイン/ }),
+    page.locator("a, button").filter({ hasText: /ログイン/ }),
+  ]);
+  if (!loginButton) {
+    throw new Error("ログインボタンが見つかりませんでした");
+  }
 
   await Promise.all([
     page.waitForLoadState("networkidle"),
-    loginButton.first().click(),
+    loginButton.click(),
   ]);
   await dumpDebug(page, "02_after_login");
 }
