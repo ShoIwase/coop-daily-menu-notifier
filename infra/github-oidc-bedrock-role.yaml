@@ -16,13 +16,6 @@ Parameters:
     Type: String
     Default: main
 
-  OIDCProviderArn:
-    Type: String
-    Description: >-
-      既存の GitHub OIDC Provider ARN（アカウント内で共有）。
-      形式: arn:aws:iam::<AWSアカウントID>:oidc-provider/token.actions.githubusercontent.com
-      デプロイ時に --parameter-overrides 等で明示的に指定すること（デフォルト値なし）。
-
   BedrockModelId:
     Type: String
     Default: "jp.anthropic.claude-haiku-4-5-20251001-v1:0"
@@ -38,7 +31,7 @@ Resources:
         Statement:
           - Effect: Allow
             Principal:
-              Federated: !Ref OIDCProviderArn
+              Federated: !Sub "arn:aws:iam::${AWS::AccountId}:oidc-provider/token.actions.githubusercontent.com"
             Action: sts:AssumeRoleWithWebIdentity
             Condition:
               StringEquals:
