@@ -18,8 +18,10 @@ Parameters:
 
   OIDCProviderArn:
     Type: String
-    Description: "既存の GitHub OIDC Provider ARN（アカウント内で共有）"
-    Default: "arn:aws:iam::{account_id}:oidc-provider/token.actions.githubusercontent.com"
+    Description: >-
+      既存の GitHub OIDC Provider ARN（アカウント内で共有）。
+      形式: arn:aws:iam::<AWSアカウントID>:oidc-provider/token.actions.githubusercontent.com
+      デプロイ時に --parameter-overrides 等で明示的に指定すること（デフォルト値なし）。
 
   BedrockModelId:
     Type: String
