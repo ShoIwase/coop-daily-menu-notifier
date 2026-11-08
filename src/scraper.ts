@@ -51,6 +51,16 @@ async function findFirstMatch(candidates: Locator[]): Promise<Locator | null> {
   return null;
 }
 
+// サイト側が裏で通信を続けることがあり、networkidle を必須にすると永遠に待つ
+// （2026-11-08 にデイリーコープタブで 30 秒タイムアウトした）。load まで待ったら、
+// networkidle は短めに試すだけにして、来なくても先へ進む。
+async function settle(page: Page): Promise<void> {
+  await page.waitForLoadState("load").catch(() => {});
+  await page.waitForLoadState("networkidle", { timeout: 8000 }).catch(() => {
+    console.log("[scraper] networkidle にならないまま続行します");
+  });
+}
+
 async function login(page: Page): Promise<void> {
   const memberCode = process.env.COOP_MEMBER_CODE;
   const password = process.env.COOP_PASSWORD;
@@ -87,7 +97,8 @@ async function login(page: Page): Promise<void> {
     throw new Error("ログインボタンが見つかりませんでした");
   }
 
-  await Promise.all([page.waitForLoadState("networkidle"), loginButton.click()]);
+  await Promise.all([page.waitForLoadState("domcontentloaded"), loginButton.click()]);
+  await settle(page);
   await dumpDebug(page, "02_after_login");
 }
 
@@ -101,7 +112,8 @@ async function findMenuPdfUrl(page: Page): Promise<string> {
     .catch(() => false);
 
   if (tabAppeared) {
-    await Promise.all([page.waitForLoadState("networkidle"), dailyCoopTab.click()]);
+    await Promise.all([page.waitForLoadState("domcontentloaded"), dailyCoopTab.click()]);
+    await settle(page);
     // タブ切り替え後にコンテンツが非同期で描画されるケースに備えて少し待つ
     await page.waitForTimeout(2000);
     await dumpDebug(page, "03_daily_coop_tab");
