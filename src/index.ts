@@ -20,7 +20,7 @@ async function main(): Promise<void> {
     console.log("[index] 送信完了");
   } else {
     console.log(
-      "[index] キャッシュがまだ無いため今回は送信をスキップします（次回実行分から配信されます）"
+      "[index] 送れるキャッシュが無いため今回は送信をスキップします（次回実行分から配信されます）"
     );
   }
 
