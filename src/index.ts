@@ -2,31 +2,28 @@ import dotenv from "dotenv";
 dotenv.config();
 
 import { scrapeMenus } from "./scraper";
-import { formatMessage } from "./format";
-import { sendToDiscord } from "./discord";
-import { loadCachedMenus, saveCachedMenus } from "./cache";
+import { loadWeek, saveWeek } from "./cache";
+import { mondayOfWeekJST, nowJST } from "./dateUtil";
 
+// 献立を取得して data/menu-cache.json に配達週ごとに保存するだけ。
+// Discord への通知は自宅サーバーの IoT ダッシュボード（home/iot）が
+// 毎朝の天気レポートにその日の分を載せる形で行う（このファイルを raw で読む）。
 async function main(): Promise<void> {
   console.log("[index] 開始");
+  const thisMonday = mondayOfWeekJST(nowJST());
+  const thisWeek = thisMonday.format("YYYY-MM-DD");
+  const nextWeek = thisMonday.add(7, "day").format("YYYY-MM-DD");
 
-  // 前回実行時（1週間前）に取得しておいた分＝今週配達される献立を送信する。
   // コープ側のサイトは常に「今日を含む週の次の週」の献立しか公開しないため、
-  // 今この場で取得しても今週配達分には辿り着けない。
-  const menusForThisWeek = loadCachedMenus();
-  if (menusForThisWeek) {
-    const message = formatMessage(menusForThisWeek);
-    console.log("[index] Discordへ送信するメッセージ:\n" + message);
-    await sendToDiscord(message);
-    console.log("[index] 送信完了");
-  } else {
-    console.log(
-      "[index] 送れるキャッシュが無いため今回は送信をスキップします（次回実行分から配信されます）"
-    );
+  // 取得できるのは来週分。来週分がまだ無いときだけ取得する
+  // （通常は月曜に取得。失敗したら翌日以降の実行で取り直す）
+  if (loadWeek(nextWeek)) {
+    console.log(`[index] ${nextWeek} の週の献立は取得済み`);
+    return;
   }
-
-  console.log("[index] 来週配達分の献立を取得してキャッシュを更新します");
-  const menusForNextWeek = await scrapeMenus();
-  saveCachedMenus(menusForNextWeek);
+  console.log(`[index] ${nextWeek} の週の献立を取得してキャッシュします`);
+  const menus = await scrapeMenus();
+  saveWeek(nextWeek, menus, thisWeek);
   console.log("[index] キャッシュ更新完了");
 }
 

@@ -1,16 +1,14 @@
-name: Daily Coop Menu Notify
+name: Update Coop Menu Cache
 
 on:
   schedule:
-    # 月曜 12:17 JST = 03:17 UTC（週替わりメニューは月曜にまとめて1回通知。
-    # コープ側は「今週の次の週」の献立しか公開しないため、当日はキャッシュ
-    # 済み＝今週配達分を送信し、この実行で取得した来週分を次回用に保存する）
-    # 毎時00分は GitHub Actions の schedule が最も混雑して数時間遅れる
-    # （2026-08-31 は 7 時間半遅延して翌 01:26 JST に実行）ため、
-    # ピークを外した半端な分に置いている。
-    # 月曜 0 時ちょうどに来週分PDFへ切り替わるので、月曜であれば何時でも
-    # 取得できるのは同じ「来週分」＝次回送信用のキャッシュとして正しい。
-    - cron: "17 3 * * 1"
+    # 月〜水 12:17 JST = 03:17 UTC。コープ側は「今週の次の週」の献立しか
+    # 公開しないので、来週分を取得して data/menu-cache.json に保存する。
+    # 来週分が取得済みなら何もしないので、実際に取得するのは通常月曜だけ。
+    # 火・水は月曜が失敗したときの取り直し用。
+    # 送信は自宅サーバーの IoT 朝レポート（7:00）が、このキャッシュから当日分を読んで行う。
+    # 毎時00分は GitHub Actions の schedule が混雑して数時間遅れるため半端な分に置いている。
+    - cron: "17 3 * * 1-3"
   workflow_dispatch:
     inputs:
       debug_scrape:
@@ -54,7 +52,6 @@ jobs:
       - name: Run notifier
         run: npm start
         env:
-          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
           COOP_MEMBER_CODE: ${{ secrets.COOP_MEMBER_CODE }}
           COOP_PASSWORD: ${{ secrets.COOP_PASSWORD }}
           DEBUG_SCRAPE: ${{ inputs.debug_scrape && 'true' || 'false' }}
